@@ -14,6 +14,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"runtime"
@@ -585,6 +586,41 @@ func TestLoadBalancerRequest(t *testing.T) {
 	assertEqual(t, ts1URL, ts2URL)
 }
 
+func TestLoadBalancerRequestStripsURLComponents(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	for _, tt := range []struct {
+		name   string
+		suffix string
+	}{
+		{"fragment", "/ignored?foo=bar#fragment"},
+		{"empty query", "/ignored?"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rr, err := NewRoundRobin(server.URL + tt.suffix)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := dcnl()
+			defer client.Close()
+			client.SetLoadBalancer(rr)
+
+			resp, err := client.R().Get("/health")
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertEqual(t, http.StatusNoContent, resp.StatusCode())
+		})
+	}
+}
+
 func TestLoadBalancerRequestFlowError(t *testing.T) {
 
 	t.Run("obtain next url error", func(t *testing.T) {
@@ -638,6 +674,16 @@ func Test_extractBaseURL(t *testing.T) {
 		{
 			name:        "longer relative path with file extension and query params",
 			inputURL:    "https://resty.dev/welcome/path/to/remove.html?a=1&b=2",
+			expectedURL: "https://resty.dev",
+		},
+		{
+			name:        "URL fragment",
+			inputURL:    "https://resty.dev/welcome?foo=bar#section",
+			expectedURL: "https://resty.dev",
+		},
+		{
+			name:        "empty query marker",
+			inputURL:    "https://resty.dev/welcome?",
 			expectedURL: "https://resty.dev",
 		},
 		{

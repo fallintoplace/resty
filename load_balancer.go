@@ -523,6 +523,8 @@ func extractBaseURL(u string) (string, error) {
 	// we only require base URL LB
 	baseURL.Path = ""
 	baseURL.RawQuery = ""
+	baseURL.ForceQuery = false
+	baseURL.Fragment = ""
 
 	return strings.TrimRight(baseURL.String(), "/"), nil
 }
